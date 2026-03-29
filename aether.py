@@ -9,7 +9,7 @@ import chromadb
 from chromadb.utils import embedding_functions
 
 # --- 1. CONFIG & UI ---
-st.set_page_config(page_title="Aether Intelligence", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="Aether Pro", page_icon="🦾", layout="wide")
 
 st.markdown("""
     <style>
@@ -18,27 +18,26 @@ st.markdown("""
     [data-testid="stChatMessageUser"] { background-color: #2D2D2D !important; border: 1px solid #444; margin-left: auto; }
     [data-testid="stChatMessageAssistant"] { background-color: #1A1D23 !important; border: 1px solid #333; }
     header {visibility: hidden;} footer {visibility: hidden;}
-    .stMetric { background-color: #1A1D23; padding: 10px; border-radius: 10px; border: 1px solid #333; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. BRAIN SETUP (ChromaDB) ---
-CHROMA_DATA_PATH = "aether_intelligence_db"
+# --- 2. BRAIN SETUP ---
+CHROMA_DATA_PATH = "aether_stable_db"
 client_db = chromadb.PersistentClient(path=CHROMA_DATA_PATH)
 emb_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
-collection = client_db.get_or_create_collection(name="aether_pro_memories", embedding_function=emb_fn)
+collection = client_db.get_or_create_collection(name="aether_balanced_v1", embedding_function=emb_fn)
 
-# --- 3. PRO LOGIC FUNCTIONS ---
-
-def get_recent_msgs(msgs, limit=6):
-    """Context Overload Fix (Upgrade #1)"""
+# --- 3. PRO UTILS ---
+def get_recent_msgs(msgs, limit=5):
     if len(msgs) <= 1: return msgs
-    return [msgs[0]] + msgs[-(limit-1):]
+    return msgs[-limit:]
 
-def should_search(text):
-    """Smart Search Trigger (Upgrade #3)"""
-    triggers = ["kya", "kaun", "kab", "price", "news", "weather", "?", "today", "who", "what"]
-    return any(t in text.lower() for t in triggers)
+def google_search(query):
+    try:
+        with DDGS() as ddgs:
+            results = [r['body'] for r in ddgs.text(query, max_results=2)]
+            return "\n".join(results)
+    except: return ""
 
 def speak(text):
     try:
@@ -50,93 +49,87 @@ def speak(text):
         os.remove("temp.mp3")
     except: pass
 
-# --- 4. SESSION & PERSONALITY ---
+# --- 4. SESSION INITIALIZATION ---
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "system", "content": "You are Aether. Savage, sarcastic, desi. Detect habits and repeat behavior. Use past memory to roast or guide."}]
-    st.session_state.user_name = "User"
+    st.session_state.messages = []
+if "user_name" not in st.session_state:
+    st.session_state.user_name = "Chitransh"
 
-# --- 5. SIDEBAR (The Control Center) ---
+# --- 5. SIDEBAR ---
 with st.sidebar:
-    st.title("🧠 Aether Intel")
+    st.title("🦾 Aether Dashboard")
+    st.write(f"Welcome, **{st.session_state.user_name}**")
     st.write("---")
     
-    # Intelligence Metrics (Upgrade #7)
-    try:
-        mem_count = collection.count()
-    except: mem_count = 0
-    st.metric("Memories Stored", mem_count)
+    mode_selection = st.radio("Behavior Mode:", ["Friendly 😎", "Savage 😈", "Focus 🎯"])
+    voice_on = st.toggle("Voice Reply 🔊", value=True)
     
-    mode = st.radio("Behavior Mode:", ["Savage 😈", "Friendly 😎", "Focus 🎯"])
-    voice_on = st.toggle("Voice Reply 🔊", value=True) # Upgrade #6
-    
-    st.write("---")
-    if st.button("Wipe Brain 🧠"):
-        client_db.delete_collection("aether_pro_memories")
+    if st.button("Clear Brain 🧠"):
+        client_db.delete_collection("aether_balanced_v1")
+        st.session_state.messages = []
         st.rerun()
 
 # --- 6. CHAT UI ---
-st.title(f"Aether Pro ({mode})")
+st.title(f"Aether: {mode_selection}")
 
 for msg in st.session_state.messages:
-    if msg["role"] != "system":
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-# --- 7. THE MASTER ENGINE ---
+# --- 7. CORE LOGIC ---
 col1, col2 = st.columns([0.1, 0.9])
 with col1:
     v_input = speech_to_text(language='en', start_prompt="🎤", key='speech')
 
-user_input = v_input if v_input else st.chat_input("Kaam bol...")
+user_input = v_input if v_input else st.chat_input("Baat kar mujhse...")
 
 if user_input:
-    # A. Name Detection (Upgrade #4)
-    if "mera naam" in user_input.lower():
-        words = user_input.split()
-        st.session_state.user_name = words[-1]
-
-    # B. Memory Recall
+    # A. Memory Recall
     past_memory = ""
-    repeat_warning = ""
     try:
-        results = collection.query(query_texts=[user_input], n_results=2)
-        if results['documents'][0]:
-            past_memory = "\n".join(results['documents'][0])
-            # Repeat Detector (Upgrade #5)
-            if user_input.lower() in past_memory.lower():
-                repeat_warning = "User is repeating the same thing. Call him out for being stuck in a loop."
+        results = collection.query(query_texts=[user_input], n_results=3)
+        if results and results.get("documents") and results["documents"][0]:
+            docs = results["documents"][0]
+            metas = results.get("metadatas", [[]])[0]
+            for i, doc in enumerate(docs):
+                reply = metas[i].get("reply", "") if metas else ""
+                past_memory += f"User: {doc}\nAether: {reply}\n"
     except: pass
 
-    # C. Smart Search
+    # B. Search & Logic
     search_data = ""
-    if should_search(user_input):
-        with st.status("Searching live info..."):
-            search_data = google_search(user_input)
+    if "?" in user_input or "news" in user_input.lower():
+        search_data = google_search(user_input)
 
-    # D. Construct Optimized Context (Upgrade #1 & #2)
+    # C. Persona Logic (NEW BALANCED PROMPT)
+    mood_prompt = f"Tera naam Aether hai. User ka naam {st.session_state.user_name} hai. "
+    
+    if mode_selection == "Friendly 😎":
+        mood_prompt += "Tu ek samajhdaar bada bhai hai. Help kar aur respect se baat kar."
+    elif mode_selection == "Savage 😈":
+        mood_prompt += "Tu sarcastic hai par badtameez nahi. Pehle user ki baat ka sahi jawab de, phir halka sa roast kar. User ki baat dhyan se sun."
+    else:
+        mood_prompt += "Tu ek strict professional coach hai. No jokes, only high-quality work and logic."
+
+    mood_prompt += f"\nRelevant Context from past: {past_memory[:200]}"
+
+    # D. Construct Context
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    client = Groq(api_key=st.secrets.get("GROQ_API_KEY", ""))
-    
-    # System instruction with Intelligence (Upgrade #2)
-    intel_sys = f"""
-    Current Mode: {mode}. User Name: {st.session_state.user_name}.
-    {repeat_warning}
-    Use this Memory for context: {past_memory}
-    Search Info: {search_data}
-    Always stay in character. If User Name is known, use it to personalize the roast/help.
-    """
-    
-    final_messages = [{"role": "system", "content": intel_sys}] + get_recent_msgs(st.session_state.messages)
+    final_context = get_recent_msgs(st.session_state.messages) + [
+        {"role": "system", "content": f"{mood_prompt}\nLatest Search Info: {search_data}\nIMPORTANT: Har halat mein user ki baat ka pehle jawab dena hai."}
+    ]
 
+    # E. Response
+    client = Groq(api_key=st.secrets.get("GROQ_API_KEY", ""))
     with st.chat_message("assistant"):
         box = st.empty()
         full_res = ""
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile", 
-            messages=final_messages, 
+            messages=final_context, 
             stream=True
         )
         for chunk in completion:
@@ -145,14 +138,12 @@ if user_input:
                 box.markdown(full_res + "▌")
         box.markdown(full_res)
 
-        # E. Save to Semantic Memory
+        # F. Smart Save
         collection.add(
-            documents=[f"User: {user_input} | Response: {full_res}"],
+            documents=[user_input],
+            metadatas=[{"reply": full_res}],
             ids=[str(uuid.uuid4())]
         )
         
         st.session_state.messages.append({"role": "assistant", "content": full_res})
         if voice_on: speak(full_res)
-
-   
-   
