@@ -11,27 +11,29 @@ from chromadb.utils import embedding_functions
 import uuid
 import os
 
-# --- CONFIG ---
+# --- 1. APP CONFIG ---
 st.set_page_config(page_title="Aether Pro Max", page_icon="🦾", layout="wide")
 
-# --- CHROMA DB (Persistent Brain) ---
+# --- 2. CHROMA DB SETUP (The Brain) ---
 CHROMA_DATA_PATH = "aether_brain"
 client_db = chromadb.PersistentClient(path=CHROMA_DATA_PATH)
+# Embedding function for semantic memory
 emb_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 collection = client_db.get_or_create_collection(name="aether_memories", embedding_function=emb_fn)
 
-# --- CSS (Premium ChatGPT Dark) ---
+# --- 3. CUSTOM CSS (Elite ChatGPT Dark Look) ---
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: white; }
     .stChatMessage { border-radius: 15px; padding: 15px; margin-bottom: 10px; }
-    [data-testid="stChatMessageUser"] { background-color: #2D2D2D !important; border: 1px solid #404040; }
+    [data-testid="stChatMessageUser"] { background-color: #2D2D2D !important; border: 1px solid #404040; margin-left: auto; }
     [data-testid="stChatMessageAssistant"] { background-color: #1A1D23 !important; border: 1px solid #303030; }
     header {visibility: hidden;} footer {visibility: hidden;}
+    .stChatInputContainer { padding-bottom: 20px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- UTILS ---
+# --- 4. API & CORE FUNCTIONS ---
 api_key = st.secrets.get("GROQ_API_KEY", "")
 
 def google_search(query):
@@ -39,31 +41,34 @@ def google_search(query):
         with DDGS() as ddgs:
             results = [r['body'] for r in ddgs.text(query, max_results=3)]
             return "\n".join(results)
-    except: return ""
+    except Exception:
+        return ""
 
 def speak(text):
     try:
+        # Voice output (Hinglish ready)
         tts = gTTS(text=text[:250], lang='hi', slow=False) 
         tts.save("temp.mp3")
         with open("temp.mp3", "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
             st.markdown(f'<audio autoplay="true"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>', unsafe_allow_html=True)
         os.remove("temp.mp3")
-    except: pass
+    except Exception:
+        pass
 
-# --- SESSION & MODES ---
+# --- 5. PERSONALITY SYSTEM ---
 if "messages" not in st.session_state:
     st.session_state.mode = "Savage"
-    st.session_state.messages = [{"role": "system", "content": "You are Aether. Current Mode: Savage. Be rude, sarcastic and use Hinglish. Never mention being an AI."}]
+    st.session_state.messages = [{"role": "system", "content": "You are Aether. Current Mode: Savage. Be rude, sarcastic, and use Hinglish. Never say you are an AI."}]
 
-# --- SIDEBAR (Mode Switcher) ---
+# --- 6. SIDEBAR CONTROL ---
 with st.sidebar:
     st.title("🦾 Aether Control")
     st.write("---")
     mode_choice = st.radio("Select Personality Mode:", ["Savage 😈", "Friendly 😎", "Focus 🎯"])
     
     if "Savage" in mode_choice: 
-        new_sys = "You are Aether. Mode: Savage. Be rude, sarcastic and desi. Roast the user based on past memory."
+        new_sys = "You are Aether. Mode: Savage. Be rude, sarcastic and desi. Roast the user based on memory."
         st.session_state.mode = "Savage"
     elif "Friendly" in mode_choice:
         new_sys = "You are Aether. Mode: Friendly. Be a helpful, respectful desi brother."
@@ -72,66 +77,81 @@ with st.sidebar:
         new_sys = "You are Aether. Mode: Focus. Act as a strict productivity coach. No jokes, only logic."
         st.session_state.mode = "Focus"
 
-    # Update system prompt if mode changed
+    # Live update of personality
     st.session_state.messages[0]["content"] = new_sys
 
-    if st.button("Clear Brain 🧠"):
+    if st.button("Format Brain 🧠"):
         client_db.delete_collection("aether_memories")
+        st.success("Memory Wiped!")
         st.rerun()
+    st.write("---")
+    st.caption(f"Status: {st.session_state.mode} Mode Active")
 
-# --- MAIN CHAT ---
-st.title(f"Aether Pro: {st.session_state.mode} Mode")
+# --- 7. CHAT UI ---
+st.title(f"Aether Pro: {st.session_state.mode}")
 
 for msg in st.session_state.messages:
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-# --- INPUT & LOGIC ---
+# --- 8. INPUT & AI LOGIC ---
 col1, col2 = st.columns([0.1, 0.9])
 with col1:
     v_input = speech_to_text(language='en', start_prompt="🎤", key='speech')
 
-user_input = v_input if v_input else st.chat_input("Message Aether...")
+user_input = v_input if v_input else st.chat_input("Kaam bol, vella mat baith...")
 
 if user_input:
-    # 1. SMART MEMORY RETRIEVAL (Metadata based)
-    results = collection.query(query_texts=[user_input], n_results=3)
+    # A. Memory Recall (ChromaDB)
     past_memory = ""
-    if results and results.get("documents") and results["documents"][0]:
-        for i, doc in enumerate(results['documents'][0]):
-            resp = results['metadatas'][0][i]['response']
-            past_memory += f"User: {doc} | Aether: {resp}\n"
+    try:
+        results = collection.query(query_texts=[user_input], n_results=2)
+        if results and results.get("documents") and results["documents"][0]:
+            for i, doc in enumerate(results['documents'][0]):
+                if results.get('metadatas') and results['metadatas'][0]:
+                    meta_res = results['metadatas'][0][i].get('response', '')
+                    past_memory += f"User said: {doc} | You replied: {meta_res}\n"
+    except Exception:
+        pass
 
-    # 2. ADD USER MSG
+    # B. Add User Message to History
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # 3. SEARCH
-    search_data = ""
-    if any(k in user_input.lower() for k in ['news', 'aaj', 'price', 'weather', 'today']):
-        with st.status("Searching..."):
-            search_data = google_search(user_input)
+    # C. Real-time Search Check
+    search_context = ""
+    if any(k in user_input.lower() for k in ['news', 'aaj', 'price', 'weather', 'today', 'match']):
+        with st.status("Internet pe hath-pair maar raha hoon..."):
+            search_context = google_search(user_input)
 
-    # 4. GENERATE RESPONSE
+    # D. Construct AI Context
     client = Groq(api_key=api_key)
-    final_prompt = st.session_state.messages + [
-        {"role": "system", "content": f"Past context: {past_memory}\nSearch result: {search_data}\nUse memory to refer to past chats if relevant."}
+    # Combining history with memory and search data
+    context_to_send = st.session_state.messages + [
+        {"role": "system", "content": f"Past Memory: {past_memory}\nLive Search: {search_context}\nUse this context to be smarter and more savage/friendly."}
     ]
 
+    # E. Assistant Response (Streaming)
     with st.chat_message("assistant"):
         box = st.empty()
         full_res = ""
-        completion = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=final_messages, stream=True)
+        # FIXED: .chat.completions.create
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile", 
+            messages=context_to_send, 
+            stream=True
+        )
         
         for chunk in completion:
             if chunk.choices[0].delta.content:
                 full_res += chunk.choices[0].delta.content
                 box.markdown(full_res + "▌")
+        
         box.markdown(full_res)
 
-        # 5. SMART SAVE (UUID + Metadata)
+        # F. Smart Save (UUID + Metadata)
         collection.add(
             documents=[user_input],
             metadatas=[{"response": full_res, "mode": st.session_state.mode}],
