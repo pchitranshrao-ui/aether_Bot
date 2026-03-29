@@ -8,24 +8,26 @@ from duckduckgo_search import DDGS
 import chromadb
 from chromadb.utils import embedding_functions
 
-# --- 1. CONFIG & UI ---
-st.set_page_config(page_title="Aether Pro", page_icon="🦾", layout="wide")
+# --- 1. CONFIG & ELITE UI ---
+st.set_page_config(page_title="Aether Intelligence", page_icon="🦾", layout="wide")
 
+# Custom CSS for that 'Elite' Look
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: white; }
-    .stChatMessage { border-radius: 15px; padding: 12px; margin-bottom: 10px; }
-    [data-testid="stChatMessageUser"] { background-color: #2D2D2D !important; border: 1px solid #444; margin-left: auto; }
-    [data-testid="stChatMessageAssistant"] { background-color: #1A1D23 !important; border: 1px solid #333; }
+    .stChatMessage { border-radius: 12px; padding: 15px; margin-bottom: 10px; border: 1px solid #262730; }
+    [data-testid="stChatMessageUser"] { background-color: #262730 !important; }
+    [data-testid="stChatMessageAssistant"] { background-color: #161B22 !important; }
+    .stMetric { background-color: #161B22; border: 1px solid #30363D; border-radius: 10px; padding: 10px; }
     header {visibility: hidden;} footer {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
 # --- 2. BRAIN SETUP ---
-CHROMA_DATA_PATH = "aether_stable_db"
+CHROMA_DATA_PATH = "aether_elite_db"
 client_db = chromadb.PersistentClient(path=CHROMA_DATA_PATH)
 emb_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
-collection = client_db.get_or_create_collection(name="aether_balanced_v1", embedding_function=emb_fn)
+collection = client_db.get_or_create_collection(name="aether_elite_v1", embedding_function=emb_fn)
 
 # --- 3. PRO UTILS ---
 def get_recent_msgs(msgs, limit=5):
@@ -37,7 +39,7 @@ def google_search(query):
         with DDGS() as ddgs:
             results = [r['body'] for r in ddgs.text(query, max_results=2)]
             return "\n".join(results)
-    except: return ""
+    except: return "No internet context found."
 
 def speak(text):
     try:
@@ -57,72 +59,80 @@ if "user_name" not in st.session_state:
 
 # --- 5. SIDEBAR ---
 with st.sidebar:
-    st.title("🦾 Aether Dashboard")
-    st.write(f"Welcome, **{st.session_state.user_name}**")
+    st.title("🦾 Aether Control")
+    st.write(f"User identified: **{st.session_state.user_name}**")
     st.write("---")
     
-    mode_selection = st.radio("Behavior Mode:", ["Friendly 😎", "Savage 😈", "Focus 🎯"])
-    voice_on = st.toggle("Voice Reply 🔊", value=True)
+    mode_selection = st.radio("Persona Mode:", ["Friendly 😎", "Savage 😈", "Focus 🎯"])
+    voice_on = st.toggle("Voice Feedback 🔊", value=True)
     
-    if st.button("Clear Brain 🧠"):
-        client_db.delete_collection("aether_balanced_v1")
+    try: count = collection.count()
+    except: count = 0
+    st.metric("Neural Memories", f"{count} Units")
+    
+    if st.button("Reset Neural Links 🧠"):
+        client_db.delete_collection("aether_elite_v1")
         st.session_state.messages = []
         st.rerun()
 
 # --- 6. CHAT UI ---
-st.title(f"Aether: {mode_selection}")
+st.title(f"Aether Engine: {mode_selection}")
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# --- 7. CORE LOGIC ---
+# --- 7. CORE ENGINE ---
 col1, col2 = st.columns([0.1, 0.9])
 with col1:
     v_input = speech_to_text(language='en', start_prompt="🎤", key='speech')
 
-user_input = v_input if v_input else st.chat_input("Baat kar mujhse...")
+user_input = v_input if v_input else st.chat_input("Input your command...")
 
 if user_input:
     # A. Memory Recall
     past_memory = ""
     try:
-        results = collection.query(query_texts=[user_input], n_results=3)
+        results = collection.query(query_texts=[user_input], n_results=2)
         if results and results.get("documents") and results["documents"][0]:
             docs = results["documents"][0]
             metas = results.get("metadatas", [[]])[0]
             for i, doc in enumerate(docs):
                 reply = metas[i].get("reply", "") if metas else ""
-                past_memory += f"User: {doc}\nAether: {reply}\n"
+                past_memory += f"Context: {doc} | Response: {reply}\n"
     except: pass
 
-    # B. Search & Logic
+    # B. Search Check
     search_data = ""
     if "?" in user_input or "news" in user_input.lower():
-        search_data = google_search(user_input)
+        with st.status("Fetching global context..."):
+            search_data = google_search(user_input)
 
-    # C. Persona Logic (NEW BALANCED PROMPT)
-    mood_prompt = f"Tera naam Aether hai. User ka naam {st.session_state.user_name} hai. "
+    # C. Persona Instruction (THE ELITE FORMATTER)
+    mood_prompt = f"""
+    You are Aether. User is {st.session_state.user_name}.
+    Current Mode: {mode_selection}.
     
-    if mode_selection == "Friendly 😎":
-        mood_prompt += "Tu ek samajhdaar bada bhai hai. Help kar aur respect se baat kar."
-    elif mode_selection == "Savage 😈":
-        mood_prompt += "Tu sarcastic hai par badtameez nahi. Pehle user ki baat ka sahi jawab de, phir halka sa roast kar. User ki baat dhyan se sun."
-    else:
-        mood_prompt += "Tu ek strict professional coach hai. No jokes, only high-quality work and logic."
+    INSTRUCTIONS FOR FORMATTING:
+    - Use plenty of relevant emojis (🚀, 🧠, 🎯, 💀, 🔥).
+    - Use Bold text for emphasis.
+    - Use Bullet points for lists.
+    - Always end with a strong 'Verdict' or 'Final Blow'.
+    - Be concise but visually impactful.
+    - Respond in Hinglish.
+    - Listen carefully to the user's intent.
+    """
 
-    mood_prompt += f"\nRelevant Context from past: {past_memory[:200]}"
-
-    # D. Construct Context
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
+    # D. Final Model Context
     final_context = get_recent_msgs(st.session_state.messages) + [
-        {"role": "system", "content": f"{mood_prompt}\nLatest Search Info: {search_data}\nIMPORTANT: Har halat mein user ki baat ka pehle jawab dena hai."}
+        {"role": "system", "content": f"{mood_prompt}\nMemory: {past_memory[:200]}\nInternet: {search_data}"}
     ]
 
-    # E. Response
+    # E. Streaming Response
     client = Groq(api_key=st.secrets.get("GROQ_API_KEY", ""))
     with st.chat_message("assistant"):
         box = st.empty()
