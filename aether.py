@@ -9,7 +9,7 @@ MEMORY_FILE = Path("aether_memory.json")
 st.set_page_config(page_title="Aether AI", page_icon="🤖")
 
 # --- API KEY (Yahan apni asli key daal do) ---
-api_key ="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"
+api_key =st.secrets["GROQ_API_KEY"]
 
 # --- MEMORY FUNCTIONS ---
 def load_memory():
