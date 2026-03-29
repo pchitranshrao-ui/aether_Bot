@@ -24,22 +24,18 @@ st.markdown("""
         margin-bottom: 10px;
         max-width: 80%;
     }
-    /* User Message Style */
     [data-testid="stChatMessageUser"] {
         background-color: #2D2D2D !important;
         margin-left: auto;
         border: 1px solid #404040;
     }
-    /* Assistant Message Style */
     [data-testid="stChatMessageAssistant"] {
         background-color: #1A1D23 !important;
         border: 1px solid #303030;
     }
-    /* Hide Streamlit Header/Footer */
     header {visibility: hidden;}
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    
     .stChatInputContainer {
         padding-bottom: 20px;
     }
@@ -54,11 +50,12 @@ def google_search(query):
         with DDGS() as ddgs:
             results = [r['body'] for r in ddgs.text(query, max_results=3)]
             return "\n".join(results)
-    except: return "Search failed."
+    except: return "Bhai search nahi ho pa raha, net check kar."
 
 def speak(text):
     try:
-        tts = gTTS(text=text[:200], lang='hi') # Limit voice to first 200 chars for speed
+        # Aether ki awaaz thodi fast aur clear rakhne ke liye
+        tts = gTTS(text=text[:250], lang='hi') 
         tts.save("temp.mp3")
         with open("temp.mp3", "rb") as f:
             data = f.read()
@@ -69,62 +66,82 @@ def speak(text):
 
 def load_memory():
     if MEMORY_FILE.exists():
-        with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except: return []
     return []
 
 def save_memory(messages):
     with open(MEMORY_FILE, "w", encoding="utf-8") as f:
         json.dump(messages, f, indent=2, ensure_ascii=False)
 
-# --- SESSION ---
+# --- SESSION INITIALIZATION (With Attitude!) ---
 if "messages" not in st.session_state:
     st.session_state.messages = load_memory()
     if not st.session_state.messages:
-        st.session_state.messages = [{"role": "system", "content": "Tu Aether hai, Chitransh ka elite AI. ChatGPT jaisa professional aur smart. Hinglish mein baat kar."}]
+        # Yahan hai Aether ka asli Swag
+        st.session_state.messages = [{
+            "role": "system", 
+            "content": """
+                Tera naam Aether hai. Tu Chitransh ka personal AI assistant aur uska bhai jaisa hai. 
+                Teri personality 'Badass', 'Sarcastic' aur 'Desi' hai. 
+                Rules:
+                1. Kabhi bhi 'I am an AI' ya 'As an AI' mat bolna.
+                2. Hamesha Hinglish (Hindi + English) mein baat kar.
+                3. Agar koi faltu baat kare toh thoda roast kar de.
+                4. Chitransh tera Boss hai, uski respect kar par doston ki tarah.
+                5. Baaki logon ko 'Bhai' ya 'Guest' bol. 
+                6. Jawab chote, tedhe aur majedaar rakh. 
+                """
+        }]
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.title("🤖 Aether Pro")
+    st.title("🤖 Aether Pro Max")
     st.markdown("---")
     st.write("🛠️ **Settings**")
     if st.button("New Chat +", use_container_width=True):
+        # Reset memory but keep the personality
         st.session_state.messages = [st.session_state.messages[0]]
         save_memory([])
         st.rerun()
     st.write("---")
-    st.caption("Build by Chitransh | v2.0")
+    st.success("Aether is Online 🟢")
+    st.caption("Owner: Chitransh")
 
 # --- MAIN CHAT AREA ---
-st.title("How can I help you today?")
+st.title("Kya haal hai, Boss?")
 
-# Display Chat
+# Display Chat History
 for msg in st.session_state.messages:
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
 # --- INPUT SECTION ---
-# Mic and Text on same level logic
 col1, col2 = st.columns([0.1, 0.9])
 with col1:
+    # Mic feature
     text_from_voice = speech_to_text(language='en', start_prompt="🎤", stop_prompt="⏹️", just_once=True, key='speech')
 
-user_input = text_from_voice if text_from_voice else st.chat_input("Message Aether...")
+user_input = text_from_voice if text_from_voice else st.chat_input("Bol bhai, kya help chahiye?")
 
 if user_input:
+    # Add user message
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # Search trigger
+    # Search Logic
     client = Groq(api_key=api_key)
-    search_keywords = ['news', 'aaj', 'price', 'weather', 'score']
+    search_keywords = ['news', 'aaj', 'price', 'weather', 'score', 'mausam', 'current', 'aajkal']
     if any(word in user_input.lower() for word in search_keywords):
-        with st.status("Searching the web..."):
+        with st.status("Internet pe hath-pair maar raha hoon... 🌐"):
             search_data = google_search(user_input)
-            st.session_state.messages.append({"role": "system", "content": f"Context: {search_data}"})
+            st.session_state.messages.append({"role": "system", "content": f"Context for you: {search_data}"})
 
+    # AI Response Logic
     with st.chat_message("assistant"):
         response_placeholder = st.empty()
         full_response = ""
@@ -141,9 +158,9 @@ if user_input:
                 response_placeholder.markdown(full_response + "▌")
         
         response_placeholder.markdown(full_response)
+        
+        # Save and Speak
         st.session_state.messages.append({"role": "assistant", "content": full_response})
         save_memory(st.session_state.messages)
         speak(full_response)
-
-
           
