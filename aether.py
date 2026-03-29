@@ -4,107 +4,108 @@ import json
 import base64
 from pathlib import Path
 from gtts import gTTS
+from streamlit_mic_recorder import speech_to_text
+from duckduckgo_search import DDGS
 import os
 
 # --- CONFIG ---
 MEMORY_FILE = Path("aether_memory.json")
-st.set_page_config(page_title="Aether AI", page_icon="🦾", layout="centered")
+st.set_page_config(page_title="Aether Ultra", page_icon="🦾", layout="centered")
 
-# --- SECURE API FETCH ---
-api_key = st.secrets.get("GROQ_API_KEY", "YOUR_LOCAL_KEY_HERE")
+# --- API KEY ---
+api_key = st.secrets.get("GROQ_API_KEY", "")
+
+# --- SEARCH FUNCTION (Internet access) ---
+def google_search(query):
+    try:
+        with DDGS() as ddgs:
+            results = [r['body'] for r in ddgs.text(query, max_results=3)]
+            return "\n".join(results)
+    except:
+        return "Search failed."
 
 # --- VOICE FUNCTION ---
 def speak(text):
     try:
-        # Hindi-English mixed voice (Hinglish ke liye best)
         tts = gTTS(text=text, lang='hi')
         tts.save("temp.mp3")
         with open("temp.mp3", "rb") as f:
             data = f.read()
             b64 = base64.b64encode(data).decode()
-            # Autoplay audio element
-            audio_html = f"""
-                <audio autoplay="true">
-                <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-                </audio>
-                """
-            st.markdown(audio_html, unsafe_allow_html=True)
-        os.remove("temp.mp3") # Clean up
-    except Exception as e:
-        st.error(f"Voice Error: {e}")
+            st.markdown(f'<audio autoplay="true"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>', unsafe_allow_html=True)
+        os.remove("temp.mp3")
+    except: pass
 
-# --- MEMORY FUNCTIONS ---
+# --- MEMORY ---
 def load_memory():
     if MEMORY_FILE.exists():
-        try:
-            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except: return []
+        with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
     return []
 
 def save_memory(messages):
     with open(MEMORY_FILE, "w", encoding="utf-8") as f:
         json.dump(messages, f, indent=2, ensure_ascii=False)
 
-# --- SESSION INITIALIZATION ---
+# --- SESSION ---
 if "messages" not in st.session_state:
     st.session_state.messages = load_memory()
     if not st.session_state.messages:
-        st.session_state.messages = [
-            {"role": "system", "content": "Tu Aether hai, ek badass aur sarcastic Desi AI assistant. Chitransh tera boss hai. Hinglish mein baat kar. Hamesha chota aur funny jawab de."}
-        ]
+        st.session_state.messages = [{"role": "system", "content": "Tu Aether hai, Chitransh ka personal AI. Tu Internet search bhi kar sakta hai. Hinglish mein jawab de."}]
 
-# --- UI DESIGN ---
-st.title("🦾 Aether: The Talking AI")
-st.caption("Status: Cloud Active | Voice: Enabled 🔊")
+# --- UI ---
+st.title("🦾 Aether Ultra")
+st.caption("Features: Voice | Mic | Real-time Search 🌐")
 
-# Sidebar for admin stuff
-with st.sidebar:
-    st.header("⚙️ Admin Panel")
-    if st.button("Clear Memory 🗑️"):
-        st.session_state.messages = [st.session_state.messages[0]]
-        save_memory([])
-        st.rerun()
-    st.write("---")
-    st.info("Dost ki chat 'aether_memory.json' mein save ho rahi hai.")
+# Mic Input
+st.write("🎤 **Tap to Speak:**")
+text_input = speech_to_text(language='en', use_container_width=True, just_once=True, key='speech')
 
-# Display Chat History
+# Display Chat
 for msg in st.session_state.messages:
     if msg["role"] != "system":
-        avatar = "👤" if msg["role"] == "user" else "🦾"
-        with st.chat_message(msg["role"], avatar=avatar):
+        with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-# --- CHAT INPUT & LOGIC ---
-if prompt := st.chat_input("Hukum karo, Boss..."):
-    # 1. User Message
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user", avatar="👤"):
-        st.markdown(prompt)
+# --- AI LOGIC ---
+user_input = text_input if text_input else st.chat_input("Aaj ki news pucho...")
 
-    # 2. AI Response
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    # 🌐 SEARCH LOGIC: Check if search is needed
     client = Groq(api_key=api_key)
-    with st.chat_message("assistant", avatar="🦾"):
-        try:
-            # Full response generation
-            completion = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=st.session_state.messages
-            )
-            full_response = completion.choices[0].message.content
-            
-            # Show response
-            st.markdown(full_response)
-            
-            # 🔊 Trigger Voice
-            speak(full_response)
-            
-            # Save to memory
-            st.session_state.messages.append({"role": "assistant", "content": full_response})
-            save_memory(st.session_state.messages)
-            
-        except Exception as e:
-            st.error(f"API Error: {e}")
+    
+    # Simple check: Agar prompt mein 'news', 'price', 'today', ya 'weather' hai toh search karo
+    search_keywords = ['news', 'aaj', 'today', 'price', 'weather', 'score', 'mausam']
+    if any(word in user_input.lower() for word in search_keywords):
+        with st.status("Internet par dhoond raha hoon... 🌐"):
+            search_data = google_search(user_input)
+            st.session_state.messages.append({"role": "system", "content": f"Search Results: {search_data}"})
+
+    with st.chat_message("assistant"):
+        response_placeholder = st.empty()
+        full_response = ""
+        
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=st.session_state.messages,
+            stream=True
+        )
+        
+        for chunk in completion:
+            if chunk.choices[0].delta.content:
+                full_response += chunk.choices[0].delta.content
+                response_placeholder.markdown(full_response + "▌")
+        
+        response_placeholder.markdown(full_response)
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
+        save_memory(st.session_state.messages)
+        speak(full_response)
+          
+
 
 
 
