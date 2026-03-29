@@ -6,39 +6,29 @@ from pathlib import Path
 from gtts import gTTS
 from streamlit_mic_recorder import speech_to_text
 from duckduckgo_search import DDGS
+import chromadb
+from chromadb.utils import embedding_functions
 import os
 
 # --- CONFIG & THEME ---
-MEMORY_FILE = Path("aether_memory.json")
-st.set_page_config(page_title="Aether Pro", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="Aether Pro Max", page_icon="🤖", layout="wide")
 
-# --- CUSTOM CSS (ChatGPT Look) ---
+# --- CHROMA DB SETUP (The Brain) ---
+# Ye folder banayega jahan yaadein save hongi
+CHROMA_DATA_PATH = "aether_brain"
+client_db = chromadb.PersistentClient(path=CHROMA_DATA_PATH)
+# Embedding function (Text ko numbers mein badalne ke liye)
+emb_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+collection = client_db.get_or_create_collection(name="aether_memories", embedding_function=emb_fn)
+
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
-    .stApp {
-        background-color: #0E1117;
-    }
-    .stChatMessage {
-        border-radius: 15px;
-        padding: 15px;
-        margin-bottom: 10px;
-        max-width: 80%;
-    }
-    [data-testid="stChatMessageUser"] {
-        background-color: #2D2D2D !important;
-        margin-left: auto;
-        border: 1px solid #404040;
-    }
-    [data-testid="stChatMessageAssistant"] {
-        background-color: #1A1D23 !important;
-        border: 1px solid #303030;
-    }
-    header {visibility: hidden;}
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    .stChatInputContainer {
-        padding-bottom: 20px;
-    }
+    .stApp { background-color: #0E1117; }
+    .stChatMessage { border-radius: 15px; padding: 15px; margin-bottom: 10px; max-width: 80%; }
+    [data-testid="stChatMessageUser"] { background-color: #2D2D2D !important; margin-left: auto; border: 1px solid #404040; }
+    [data-testid="stChatMessageAssistant"] { background-color: #1A1D23 !important; border: 1px solid #303030; }
+    header {visibility: hidden;} footer {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -50,11 +40,10 @@ def google_search(query):
         with DDGS() as ddgs:
             results = [r['body'] for r in ddgs.text(query, max_results=3)]
             return "\n".join(results)
-    except: return "Bhai search nahi ho pa raha, net check kar."
+    except: return "Bhai net slow hai shayad."
 
 def speak(text):
     try:
-        # Aether ki awaaz thodi fast aur clear rakhne ke liye
         tts = gTTS(text=text[:250], lang='hi') 
         tts.save("temp.mp3")
         with open("temp.mp3", "rb") as f:
@@ -64,103 +53,78 @@ def speak(text):
         os.remove("temp.mp3")
     except: pass
 
-def load_memory():
-    if MEMORY_FILE.exists():
-        try:
-            with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except: return []
-    return []
-
-def save_memory(messages):
-    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(messages, f, indent=2, ensure_ascii=False)
-
-# --- SESSION INITIALIZATION (With Attitude!) ---
+# --- AI LOGIC WITH VECTOR MEMORY ---
 if "messages" not in st.session_state:
-    st.session_state.messages = load_memory()
-    if not st.session_state.messages:
-        # Yahan hai Aether ka asli Swag
-        st.session_state.messages = [{
-            "role": "system", 
-            "content": """
-                Tera naam Aether hai. Tu Chitransh ka personal AI assistant aur uska bhai jaisa hai. 
-                Teri personality 'Badass', 'Sarcastic' aur 'Desi' hai. 
-                Rules:
-                1. Kabhi bhi 'I am an AI' ya 'As an AI' mat bolna.
-                2. Hamesha Hinglish (Hindi + English) mein baat kar.
-                3. Agar koi faltu baat kare toh thoda roast kar de.
-                4. Chitransh tera Boss hai, uski respect kar par doston ki tarah.
-                5. Baaki logon ko 'Bhai' ya 'Guest' bol. 
-                6. Jawab chote, tedhe aur majedaar rakh. 
-                """
-        }]
+    st.session_state.messages = [{
+        "role": "system", 
+        "content": "Tu Aether hai, Chitransh ka badass AI. Teri memory ab ChromaDB se powered hai, tu purani baatein yaad rakh sakta hai. Hinglish mein baat kar."
+    }]
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.title("🤖 Aether Pro Max")
-    st.markdown("---")
-    st.write("🛠️ **Settings**")
-    if st.button("New Chat +", use_container_width=True):
-        # Reset memory but keep the personality
+    st.title("🤖 Aether Brain v3")
+    if st.button("Format Brain 🧠 (Clear All)", use_container_width=True):
+        client_db.delete_collection("aether_memories")
         st.session_state.messages = [st.session_state.messages[0]]
-        save_memory([])
         st.rerun()
-    st.write("---")
-    st.success("Aether is Online 🟢")
-    st.caption("Owner: Chitransh")
+    st.info("ChromaDB is Active")
 
-# --- MAIN CHAT AREA ---
-st.title("Kya haal hai, Boss?")
-
-# Display Chat History
+# Display Chat
 for msg in st.session_state.messages:
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-# --- INPUT SECTION ---
+# --- INPUT & MEMORY RETRIEVAL ---
 col1, col2 = st.columns([0.1, 0.9])
 with col1:
-    # Mic feature
-    text_from_voice = speech_to_text(language='en', start_prompt="🎤", stop_prompt="⏹️", just_once=True, key='speech')
+    text_from_voice = speech_to_text(language='en', start_prompt="🎤", key='speech')
 
-user_input = text_from_voice if text_from_voice else st.chat_input("Bol bhai, kya help chahiye?")
+user_input = text_from_voice if text_from_voice else st.chat_input("Kuch purana yaad hai?")
 
 if user_input:
-    # Add user message
+    # 1. Purani yaadein dhoondo (Search ChromaDB)
+    results = collection.query(query_texts=[user_input], n_results=2)
+    past_context = ""
+    if results['documents'][0]:
+        past_context = "\n".join(results['documents'][0])
+
+    # 2. Add current input to messages
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # Search Logic
-    client = Groq(api_key=api_key)
-    search_keywords = ['news', 'aaj', 'price', 'weather', 'score', 'mausam', 'current', 'aajkal']
+    # 3. Web Search (if needed)
+    search_context = ""
+    search_keywords = ['news', 'aaj', 'price', 'weather']
     if any(word in user_input.lower() for word in search_keywords):
-        with st.status("Internet pe hath-pair maar raha hoon... 🌐"):
-            search_data = google_search(user_input)
-            st.session_state.messages.append({"role": "system", "content": f"Context for you: {search_data}"})
+        with st.status("Internet pe dhoond raha hoon..."):
+            search_context = google_search(user_input)
 
-    # AI Response Logic
+    # 4. Final Prompt with Long-term Memory
+    full_prompt = st.session_state.messages + [
+        {"role": "system", "content": f"Purani Yaadein (Memory): {past_context}\nInternet Search: {search_context}"}
+    ]
+
+    # AI Response
+    client = Groq(api_key=api_key)
     with st.chat_message("assistant"):
-        response_placeholder = st.empty()
-        full_response = ""
-        
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=st.session_state.messages,
-            stream=True
-        )
+        res_box = st.empty()
+        full_res = ""
+        completion = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_prompt, stream=True)
         
         for chunk in completion:
             if chunk.choices[0].delta.content:
-                full_response += chunk.choices[0].delta.content
-                response_placeholder.markdown(full_response + "▌")
+                full_res += chunk.choices[0].delta.content
+                res_box.markdown(full_res + "▌")
         
-        response_placeholder.markdown(full_response)
+        res_box.markdown(full_res)
         
-        # Save and Speak
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
-        save_memory(st.session_state.messages)
-        speak(full_response)
-          
+        # 5. SAVE TO VECTOR BRAIN (ChromaDB)
+        collection.add(
+            documents=[f"User ne pucha: {user_input}, Maine jawab diya: {full_res}"],
+            ids=[f"id_{len(st.session_state.messages)}"]
+        )
+        
+        st.session_state.messages.append({"role": "assistant", "content": full_res})
+        speak(full_res)
