@@ -2,6 +2,6 @@ streamlit
 groq
 gTTS
 streamlit-mic-recorder
-duckduckgo_search
+duckduckgo-search
 chromadb
 sentence-transformers
