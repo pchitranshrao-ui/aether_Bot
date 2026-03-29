@@ -1,51 +1,44 @@
 import streamlit as st
 from groq import Groq
-import json
-import base64
+import json, base64, uuid, os
 from pathlib import Path
 from gtts import gTTS
 from streamlit_mic_recorder import speech_to_text
 from duckduckgo_search import DDGS
 import chromadb
 from chromadb.utils import embedding_functions
-import uuid
-import os
 
 # --- 1. CONFIG & UI ---
-st.set_page_config(page_title="Aether: Final Evolution", page_icon="🦾", layout="wide")
+st.set_page_config(page_title="Aether Intelligence", page_icon="🧠", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: white; }
-    .stChatMessage { border-radius: 15px; padding: 15px; margin-bottom: 10px; }
-    [data-testid="stChatMessageUser"] { background-color: #2D2D2D !important; border: 1px solid #404040; margin-left: auto; }
-    [data-testid="stChatMessageAssistant"] { background-color: #1A1D23 !important; border: 1px solid #303030; }
+    .stChatMessage { border-radius: 15px; padding: 12px; margin-bottom: 10px; }
+    [data-testid="stChatMessageUser"] { background-color: #2D2D2D !important; border: 1px solid #444; margin-left: auto; }
+    [data-testid="stChatMessageAssistant"] { background-color: #1A1D23 !important; border: 1px solid #333; }
     header {visibility: hidden;} footer {visibility: hidden;}
+    .stMetric { background-color: #1A1D23; padding: 10px; border-radius: 10px; border: 1px solid #333; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. BRAIN SETUP (ChromaDB & Memory) ---
-CHROMA_DATA_PATH = "aether_brain_v4"
+# --- 2. BRAIN SETUP (ChromaDB) ---
+CHROMA_DATA_PATH = "aether_intelligence_db"
 client_db = chromadb.PersistentClient(path=CHROMA_DATA_PATH)
 emb_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
-collection = client_db.get_or_create_collection(name="aether_memories", embedding_function=emb_fn)
+collection = client_db.get_or_create_collection(name="aether_pro_memories", embedding_function=emb_fn)
 
-def get_recent_history(messages, limit=6):
-    """Memory Leak aur Token kharch bachane ke liye (Upgrade #1)"""
-    if len(messages) <= 1: return messages
-    system_msg = [messages[0]]
-    recent_msgs = messages[-(limit-1):]
-    return system_msg + recent_msgs
+# --- 3. PRO LOGIC FUNCTIONS ---
 
-# --- 3. CORE TOOLS ---
-api_key = st.secrets.get("GROQ_API_KEY", "")
+def get_recent_msgs(msgs, limit=6):
+    """Context Overload Fix (Upgrade #1)"""
+    if len(msgs) <= 1: return msgs
+    return [msgs[0]] + msgs[-(limit-1):]
 
-def google_search(query):
-    try:
-        with DDGS() as ddgs:
-            results = [r['body'] for r in ddgs.text(query, max_results=2)]
-            return "\n".join(results)
-    except: return ""
+def should_search(text):
+    """Smart Search Trigger (Upgrade #3)"""
+    triggers = ["kya", "kaun", "kab", "price", "news", "weather", "?", "today", "who", "what"]
+    return any(t in text.lower() for t in triggers)
 
 def speak(text):
     try:
@@ -57,105 +50,109 @@ def speak(text):
         os.remove("temp.mp3")
     except: pass
 
-def detect_mood(text):
-    """Mood Detection Logic (Upgrade #2)"""
-    text = text.lower()
-    if any(w in text for w in ["sad", "dukh", "rona", "akela"]): return "sad"
-    if any(w in text for w in ["lazy", "kal karunga", "baad me", "neend"]): return "lazy"
-    if any(w in text for w in ["padhna", "kaam", "project", "focus"]): return "productive"
-    return "normal"
-
-# --- 4. SESSION INITIALIZATION ---
+# --- 4. SESSION & PERSONALITY ---
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "system", "content": "You are Aether. Savage, sarcastic, desi. Use Hinglish. Never mention AI."}]
-    st.session_state.mode = "Savage 😈"
+    st.session_state.messages = [{"role": "system", "content": "You are Aether. Savage, sarcastic, desi. Detect habits and repeat behavior. Use past memory to roast or guide."}]
+    st.session_state.user_name = "User"
 
-# --- 5. SIDEBAR (Mode & Brain Control) ---
+# --- 5. SIDEBAR (The Control Center) ---
 with st.sidebar:
-    st.title("🦾 Aether Dashboard")
-    st.session_state.mode = st.radio("Switch Mode:", ["Savage 😈", "Friendly 😎", "Focus 🎯 (Boss Mode)"])
-    
-    if st.button("Format Brain 🧠"):
-        client_db.delete_collection("aether_memories")
-        st.session_state.messages = [st.session_state.messages[0]]
-        st.rerun()
+    st.title("🧠 Aether Intel")
     st.write("---")
-    st.info(f"Memory Count: {collection.count()}")
+    
+    # Intelligence Metrics (Upgrade #7)
+    try:
+        mem_count = collection.count()
+    except: mem_count = 0
+    st.metric("Memories Stored", mem_count)
+    
+    mode = st.radio("Behavior Mode:", ["Savage 😈", "Friendly 😎", "Focus 🎯"])
+    voice_on = st.toggle("Voice Reply 🔊", value=True) # Upgrade #6
+    
+    st.write("---")
+    if st.button("Wipe Brain 🧠"):
+        client_db.delete_collection("aether_pro_memories")
+        st.rerun()
 
-# --- 6. CHAT INTERFACE ---
-st.title(f"Aether {st.session_state.mode}")
+# --- 6. CHAT UI ---
+st.title(f"Aether Pro ({mode})")
 
 for msg in st.session_state.messages:
     if msg["role"] != "system":
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-# --- 7. THE LOGIC ENGINE ---
+# --- 7. THE MASTER ENGINE ---
 col1, col2 = st.columns([0.1, 0.9])
 with col1:
     v_input = speech_to_text(language='en', start_prompt="🎤", key='speech')
 
-user_input = v_input if v_input else st.chat_input("Bol bhai...")
+user_input = v_input if v_input else st.chat_input("Kaam bol...")
 
 if user_input:
-    # A. Mood Detection & System Update
-    current_mood = detect_mood(user_input)
-    mood_prompt = ""
-    if "Focus" in st.session_state.mode:
-        mood_prompt = "Act as a strict productivity coach. No jokes. Be direct."
-    elif current_mood == "lazy":
-        mood_prompt = "User is being lazy. Roast him extremely hard."
-    elif current_mood == "sad":
-        mood_prompt = "User is sad. Be a sarcastic but supportive brother."
+    # A. Name Detection (Upgrade #4)
+    if "mera naam" in user_input.lower():
+        words = user_input.split()
+        st.session_state.user_name = words[-1]
 
-    # B. Semantic Memory Retrieval (ChromaDB)
+    # B. Memory Recall
     past_memory = ""
+    repeat_warning = ""
     try:
         results = collection.query(query_texts=[user_input], n_results=2)
         if results['documents'][0]:
             past_memory = "\n".join(results['documents'][0])
+            # Repeat Detector (Upgrade #5)
+            if user_input.lower() in past_memory.lower():
+                repeat_warning = "User is repeating the same thing. Call him out for being stuck in a loop."
     except: pass
 
-    # C. Search Trigger (Upgrade #5)
+    # C. Smart Search
     search_data = ""
-    if "?" in user_input or any(k in user_input.lower() for k in ["kya", "kab", "kaun", "news", "price"]):
-        with st.status("Internet pe hath-pair maar raha hoon..."):
+    if should_search(user_input):
+        with st.status("Searching live info..."):
             search_data = google_search(user_input)
 
-    # D. Message Handling
+    # D. Construct Optimized Context (Upgrade #1 & #2)
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # E. Groq Completion (Optimized History)
-    client = Groq(api_key=api_key)
-    recent_history = get_recent_history(st.session_state.messages)
+    client = Groq(api_key=st.secrets.get("GROQ_API_KEY", ""))
     
-    final_context = [
-        {"role": "system", "content": f"Personality: {mood_prompt}\nPast Memory: {past_memory}\nSearch: {search_data}"}
-    ] + recent_history
+    # System instruction with Intelligence (Upgrade #2)
+    intel_sys = f"""
+    Current Mode: {mode}. User Name: {st.session_state.user_name}.
+    {repeat_warning}
+    Use this Memory for context: {past_memory}
+    Search Info: {search_data}
+    Always stay in character. If User Name is known, use it to personalize the roast/help.
+    """
+    
+    final_messages = [{"role": "system", "content": intel_sys}] + get_recent_msgs(st.session_state.messages)
 
     with st.chat_message("assistant"):
         box = st.empty()
         full_res = ""
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile", 
-            messages=final_context, 
+            messages=final_messages, 
             stream=True
         )
-        
         for chunk in completion:
             if chunk.choices[0].delta.content:
                 full_res += chunk.choices[0].delta.content
                 box.markdown(full_res + "▌")
-        
         box.markdown(full_res)
 
-        # F. Store in Semantic Memory
+        # E. Save to Semantic Memory
         collection.add(
-            documents=[f"User said: {user_input} | Aether replied: {full_res}"],
+            documents=[f"User: {user_input} | Response: {full_res}"],
             ids=[str(uuid.uuid4())]
         )
         
         st.session_state.messages.append({"role": "assistant", "content": full_res})
-        speak(full_res)
+        if voice_on: speak(full_res)
+
+   
+   
