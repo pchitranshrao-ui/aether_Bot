@@ -13,13 +13,14 @@ import os
 # --- CONFIG & THEME ---
 st.set_page_config(page_title="Aether: The Gunda AI", page_icon="🦾", layout="wide")
 
-# --- CHROMA DB SETUP (Brain) ---
+# --- CHROMA DB SETUP (The Brain) ---
 CHROMA_DATA_PATH = "aether_brain"
 client_db = chromadb.PersistentClient(path=CHROMA_DATA_PATH)
+# Embedding function for memory processing
 emb_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 collection = client_db.get_or_create_collection(name="aether_memories", embedding_function=emb_fn)
 
-# --- CUSTOM CSS (ChatGPT Dark Elite Look) ---
+# --- CUSTOM CSS (ChatGPT Elite Dark Look) ---
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: white; }
@@ -28,23 +29,23 @@ st.markdown("""
     [data-testid="stChatMessageAssistant"] { background-color: #1A1D23 !important; border: 1px solid #303030; }
     header {visibility: hidden;} footer {visibility: hidden;}
     .stChatInputContainer { padding-bottom: 20px; }
-    .stStatus { background-color: #1A1D23; border: 1px solid #404040; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- API KEY ---
 api_key = st.secrets.get("GROQ_API_KEY", "")
 
-# --- UTILITY FUNCTIONS ---
+# --- FUNCTIONS ---
 def google_search(query):
     try:
         with DDGS() as ddgs:
             results = [r['body'] for r in ddgs.text(query, max_results=3)]
             return "\n".join(results)
-    except: return "Abe net mar gaya tera, search nahi ho raha."
+    except: return "Abe net mar gaya tera, search nahi ho raha mujhse."
 
 def speak(text):
     try:
+        # Voice generation (Hinglish support)
         tts = gTTS(text=text[:250], lang='hi') 
         tts.save("temp.mp3")
         with open("temp.mp3", "rb") as f:
@@ -54,7 +55,7 @@ def speak(text):
         os.remove("temp.mp3")
     except: pass
 
-# --- SESSION & PERSONALITY (The Gunda Mode) ---
+# --- SESSION & PERSONALITY ---
 if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "system", 
@@ -73,17 +74,15 @@ if "messages" not in st.session_state:
 # --- SIDEBAR ---
 with st.sidebar:
     st.title("🦾 Aether Brain")
-    st.write("---")
-    if st.button("Delete Memory 🧠", use_container_width=True):
+    if st.button("Format Brain 🧠", use_container_width=True):
         client_db.delete_collection("aether_memories")
         st.session_state.messages = [st.session_state.messages[0]]
-        st.success("Saari yaadein mita di, ab naya dushman ban ja!")
+        st.success("Saari yaadein mita di!")
         st.rerun()
-    st.write("---")
-    st.info("Status: Rude Mode ON 🔴")
+    st.info("Rude Mode: ACTIVE 🔴")
 
-# --- MAIN CHAT UI ---
-st.title("Kaam bol, vella mat baith yahan. 🙄")
+# --- MAIN CHAT AREA ---
+st.title("Kaam bol, vella mat baith. 🙄")
 
 # Display History
 for msg in st.session_state.messages:
@@ -99,7 +98,7 @@ with col1:
 user_input = voice_input if voice_input else st.chat_input("Bol nalle...")
 
 if user_input:
-    # 1. Memory Recall (Vector Search)
+    # 1. Memory Recall
     results = collection.query(query_texts=[user_input], n_results=2)
     past_memory = "\n".join(results['documents'][0]) if results['documents'][0] else ""
 
@@ -110,22 +109,27 @@ if user_input:
 
     # 3. Internet Search check
     search_context = ""
-    keywords = ['news', 'aaj', 'price', 'weather', 'match', 'score']
+    keywords = ['news', 'aaj', 'price', 'weather', 'score', 'today']
     if any(k in user_input.lower() for k in keywords):
-        with st.status("Ruk, tere liye mehnat kar raha hoon... 🌐"):
+        with st.status("Ruk, net pe hath-pair maar raha hoon..."):
             search_context = google_search(user_input)
 
-    # 4. Prompt Construction
+    # 4. Final Prompt
     final_messages = st.session_state.messages + [
-        {"role": "system", "content": f"Purani beizzati (Memory): {past_memory}\nInternet ka kachra: {search_context}"}
+        {"role": "system", "content": f"Past Memory: {past_memory}\nSearch Data: {search_context}"}
     ]
 
-    # 5. AI Response (Streaming)
+    # 5. AI Response (FIXED LINE HERE)
     client = Groq(api_key=api_key)
     with st.chat_message("assistant"):
         box = st.empty()
         full_res = ""
-        completion = client.chat.create(model="llama-3.3-70b-versatile", messages=final_messages, stream=True)
+        # FIXED: .chat.completions.create
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile", 
+            messages=final_messages, 
+            stream=True
+        )
         
         for chunk in completion:
             if chunk.choices[0].delta.content:
@@ -134,7 +138,7 @@ if user_input:
         
         box.markdown(full_res)
         
-        # 6. Save to Brain & Speak
+        # 6. Save & Speak
         collection.add(
             documents=[f"User: {user_input} | Me: {full_res}"],
             ids=[f"msg_{len(st.session_state.messages)}"]
