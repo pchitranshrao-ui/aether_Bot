@@ -1,3 +1,5 @@
 streamlit
 groq
 gTTS
+streamlit-mic-recorder
+duckduckgo-search
